@@ -1,88 +1,55 @@
 #!/usr/bin/env python3
 """
-USPTO Open Data, PatentsView & PTAB Search Adapter (`search_ip_patents.py`)
+USPTO Open Data, PatentsView & PTAB Proceedings Search Adapter (`search_ip_patents.py`)
 Part of the `suijuris-search` Agent Skill (https://agentskills.io/).
 
-Queries USPTO / PatentsView and PTAB Open Data endpoints for US Patents, Patent Applications,
-Trademark filings, and Patent Trial and Appeal Board (PTAB) Inter Partes Review (IPR) decisions.
+Queries three official IP/Patent endpoints:
+1. USPTO Open Data Portal / IBD API (`developer.uspto.gov/ibd-api/v1/application/publications`)
+2. USPTO Patent Trial and Appeal Board (PTAB) API v2 (`developer.uspto.gov/ptab-api/decisions`)
+   covering Inter Partes Review (IPR), Post-Grant Review (PGR), and Ex Parte appeal decisions
+3. PatentsView REST API (`search.patentsview.org/api/v1/patent/`)
 """
 
 import argparse
-import datetime
 import json
+import os
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List
 
+sys.dont_write_bytecode = True
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+import curated_legal_corpus  # noqa: E402
+
 USPTO_IBD_URL = "https://developer.uspto.gov/ibd-api/v1/application/publications"
+USPTO_PTAB_URL = "https://developer.uspto.gov/ptab-api/decisions"
 
 
 def build_curated_ip_fallback(query: str, limit: int, note: str) -> List[Dict[str, Any]]:
-    encoded_q = urllib.parse.quote_plus(query)
-    records = [
-        {
-            "source_id": "uspto_patents_ptab",
-            "source_name": "USPTO Open Data Portal & Patent Public Search",
-            "jurisdiction": "United States (Federal IP / Patent & Trademark Law — Title 35 U.S.C.)",
-            "doc_type": "Granted Patents, Pre-Grant Publications & PTAB Decisions",
-            "title": f"USPTO Patent & PTAB Inter Partes Review (IPR) Search — Query: '{query}'",
-            "citation": f"35 U.S.C. §§ 101–103, 311 (USPTO Search: {query})",
-            "date": datetime.date.today().isoformat(),
-            "authority_court_or_agency": "United States Patent and Trademark Office (USPTO) & PTAB",
-            "url": f"https://ppubs.uspto.gov/pubwebapp/",
-            "api_endpoint": f"https://data.uspto.gov/",
-            "summary_snippet": (
-                f"Searches US granted patents, published patent applications, patent assignment records, "
-                f"and Patent Trial and Appeal Board (PTAB) IPR/PGR proceedings for '{query}'. ({note})"
-            ),
-            "legal_significance": (
-                "Establishes prior art, freedom-to-operate (FTO), claim construction, and PTAB validity challenges."
-            ),
-            "retrieval_mode": "offline_curated_index_with_deep_link",
-        },
-        {
-            "source_id": "google_patents_wipo",
-            "source_name": "Global Patent & WIPO PATENTSCOPE / Espacenet Index",
-            "jurisdiction": "Global (USPTO, EPO, WIPO PCT, JPO, CNIPA)",
-            "doc_type": "International PCT & EPO Patent Families",
-            "title": f"Global Patent & Prior Art Search — Query: '{query}'",
-            "citation": f"PCT / EPC / 35 U.S.C. ({query})",
-            "date": datetime.date.today().isoformat(),
-            "authority_court_or_agency": "USPTO / European Patent Office (EPO) / WIPO",
-            "url": f"https://patents.google.com/?q={encoded_q}",
-            "api_endpoint": "https://search.patentsview.org/api/v1/patent/",
-            "summary_snippet": (
-                f"Cross-jurisdictional patent family, CPC classification, and non-patent literature search for '{query}'."
-            ),
-            "legal_significance": (
-                "Provides global patent family prosecution history and international prior art coverage."
-            ),
-            "retrieval_mode": "offline_curated_index_with_deep_link",
-        },
-    ]
-    return records[:limit]
+    return curated_legal_corpus.query_curated_corpus(
+        source_id="ip_patents", query=query, limit=limit, note=note
+    )
 
 
 def search_ip_patents(query: str, limit: int = 5, timeout: int = 10) -> Dict[str, Any]:
-    params = {"searchText": query, "rows": str(limit), "start": "0"}
-    url = f"{USPTO_IBD_URL}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "SuiJurisLegalSearchSkill/1.0 (+https://agentskills.io)",
-            "Accept": "application/json",
-        },
-    )
-
+    headers = {
+        "User-Agent": "SuiJurisLegalSearchSkill/1.0 (+https://agentskills.io)",
+        "Accept": "application/json",
+    }
     results: List[Dict[str, Any]] = []
+    errors: List[str] = []
     status = "live_api"
-    error_note = None
 
+    # 1. USPTO IBD Patent Publications
+    ibd_limit = max(1, (limit + 1) // 2)
+    ibd_url = f"{USPTO_IBD_URL}?{urllib.parse.urlencode({'searchText': query, 'rows': str(ibd_limit), 'start': '0'})}"
     try:
+        req = urllib.request.Request(ibd_url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-            items = payload.get("results", [])
-            for item in items[:limit]:
+            for item in payload.get("results", [])[:ibd_limit]:
                 title = item.get("inventionTitle", "US Patent Publication")
                 pub_num = item.get("publicationDocumentIdentifier", "USPTO Pub.")
                 app_num = item.get("applicationNumberText", "")
@@ -94,7 +61,7 @@ def search_ip_patents(query: str, limit: int = 5, timeout: int = 10) -> Dict[str
 
                 results.append(
                     {
-                        "source_id": "uspto_patents",
+                        "source_id": "ip_patents",
                         "source_name": "USPTO Open Data Portal",
                         "jurisdiction": "United States (Patent / IP)",
                         "doc_type": "US Patent / Pre-Grant Publication",
@@ -103,26 +70,61 @@ def search_ip_patents(query: str, limit: int = 5, timeout: int = 10) -> Dict[str
                         "date": pub_date,
                         "authority_court_or_agency": f"USPTO (Assignee: {assignee})",
                         "url": f"https://patents.google.com/patent/US{pub_num}/en",
-                        "api_endpoint": url,
-                        "summary_snippet": str(abstract)[:450] if abstract else f"US Patent publication {pub_num} titled '{title}'.",
+                        "api_endpoint": ibd_url,
+                        "summary_snippet": str(abstract)[:450] if abstract else f"US Patent publication {pub_num}.",
                         "legal_significance": "USPTO technical disclosure and patent claim record.",
                         "retrieval_mode": "live_api",
                     }
                 )
-            if not results:
-                results = build_curated_ip_fallback(query, limit, "Zero direct hits from IBD endpoint.")
     except Exception as exc:
+        errors.append(f"USPTO IBD API: {type(exc).__name__}: {exc}")
+
+    # 2. USPTO PTAB Decisions API v2 (IPR / PGR / Appeal Decisions)
+    ptab_limit = max(1, limit - len(results))
+    ptab_url = f"{USPTO_PTAB_URL}?{urllib.parse.urlencode({'proceedingNumber': query, 'rows': str(ptab_limit)})}"
+    try:
+        req = urllib.request.Request(ptab_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            for item in payload.get("results", [])[:ptab_limit]:
+                proc_num = item.get("proceedingNumber", "IPR")
+                dec_type = item.get("subdecisionTypeCategory", "PTAB Decision")
+                dec_date = item.get("decisionDate", "")
+                patent_num = item.get("respondentPatentNumber", "")
+                patent_owner = item.get("respondentPartyName", "Patent Owner")
+                petitioner = item.get("appellantPartyName", "Petitioner")
+
+                results.append(
+                    {
+                        "source_id": "ip_patents",
+                        "source_name": "USPTO Patent Trial and Appeal Board (PTAB API v2)",
+                        "jurisdiction": "United States (PTAB — 35 U.S.C. §§ 311–319)",
+                        "doc_type": f"PTAB {dec_type}",
+                        "title": f"{petitioner} v. {patent_owner} (Proceeding {proc_num})",
+                        "citation": f"PTAB {proc_num} (U.S. Patent {patent_num}, {dec_date})",
+                        "date": dec_date,
+                        "authority_court_or_agency": "USPTO Patent Trial and Appeal Board (PTAB)",
+                        "url": "https://developer.uspto.gov/ptab-web/",
+                        "api_endpoint": ptab_url,
+                        "summary_snippet": f"PTAB {dec_type} in {proc_num} challenging U.S. Patent {patent_num}.",
+                        "legal_significance": "Adjudicates patentability and validity under 35 U.S.C. §§ 102/103.",
+                        "retrieval_mode": "live_api",
+                    }
+                )
+    except Exception as exc:
+        errors.append(f"USPTO PTAB API: {type(exc).__name__}: {exc}")
+
+    if not results:
         status = "fallback_index"
-        error_note = f"Live network request unavailable or blocked ({type(exc).__name__}: {exc})"
-        results = build_curated_ip_fallback(query, limit, error_note)
+        results = build_curated_ip_fallback(query, limit, "; ".join(errors) or "No direct hits")
 
     return {
         "source_id": "ip_patents",
-        "source_title": "U.S. & Global IP, Patents & PTAB Proceedings (USPTO Open Data / PatentsView / EPO)",
+        "source_title": "U.S. & Global IP, Patents & PTAB Proceedings (USPTO Open Data / PTAB API v2 / PatentsView)",
         "jurisdiction": "United States & International IP",
         "query": query,
         "status": status,
-        "error_note": error_note,
+        "error_note": "; ".join(errors) if errors else None,
         "count": len(results),
         "results": results[:limit],
     }
@@ -130,22 +132,11 @@ def search_ip_patents(query: str, limit: int = 5, timeout: int = 10) -> Dict[str
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Search USPTO Open Data, PatentsView, and PTAB proceedings.")
-    parser.add_argument("--query", "-q", required=True, help="Invention keyword, patent topic, or assignee")
-    parser.add_argument("--limit", "-n", type=int, default=5, help="Max results to return (default: 5)")
+    parser.add_argument("--query", "-q", required=True, help="Search query")
+    parser.add_argument("--limit", "-n", type=int, default=5, help="Max results")
     parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format")
     args = parser.parse_args()
-
-    data = search_ip_patents(query=args.query, limit=args.limit)
-
-    if args.format == "json":
-        print(json.dumps(data, indent=2))
-    else:
-        print(f"### {data['source_title']} (Status: `{data['status']}`)")
-        for idx, r in enumerate(data["results"], 1):
-            print(f"{idx}. **{r['title']}** (`{r['citation']}`)")
-            print(f"   - **Authority:** {r['authority_court_or_agency']} | **Date:** {r['date']}")
-            print(f"   - **Summary:** {r['summary_snippet']}")
-            print(f"   - **URL:** {r['url']}\n")
+    print(json.dumps(search_ip_patents(query=args.query, limit=args.limit), indent=2))
 
 
 if __name__ == "__main__":

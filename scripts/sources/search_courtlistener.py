@@ -16,7 +16,6 @@ Directly queries the Free Law Project's CourtListener REST API v4 / v3:
 """
 
 import argparse
-import datetime
 import json
 import os
 import re
@@ -27,6 +26,8 @@ from typing import Any, Dict, List, Optional
 
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+import curated_legal_corpus  # noqa: E402
 
 COURTLISTENER_V4_SEARCH_URL = "https://www.courtlistener.com/api/rest/v4/search/"
 COURTLISTENER_V3_SEARCH_URL = "https://www.courtlistener.com/api/rest/v3/search/"
@@ -50,76 +51,9 @@ def strip_html(text: str) -> str:
 def build_curated_courtlistener_fallback(
     query: str, search_type: str, court: Optional[str], limit: int, note: str
 ) -> List[Dict[str, Any]]:
-    encoded_q = urllib.parse.quote_plus(query)
-    court_param = f"&court={urllib.parse.quote_plus(court)}" if court else ""
-    web_url = f"https://www.courtlistener.com/?q={encoded_q}&type={search_type}{court_param}"
-
-    records = [
-        {
-            "source_id": "courtlistener",
-            "source_name": "CourtListener (Free Law Project) — Federal & 50-State Case Law + Harvard CAP",
-            "jurisdiction": "United States (Federal Courts, 50 State Appellate Courts & SCOTUS)",
-            "doc_type": SEARCH_TYPE_LABELS.get(search_type, "Judicial Opinions (type=o)"),
-            "title": f"CourtListener Case Law & Open Citator Search — Query: '{query}'",
-            "citation": f"CourtListener REST API v4 (type={search_type}{', court=' + court if court else ''}) — {query}",
-            "date": datetime.date.today().isoformat(),
-            "authority_court_or_agency": court
-            or "SCOTUS, U.S. Circuit Courts (1st–11th, D.C., Fed. Cir.), District Courts & 50 State Supreme/Appellate Courts",
-            "url": web_url,
-            "api_endpoint": f"{COURTLISTENER_V4_SEARCH_URL}?q={encoded_q}&type={search_type}{court_param}",
-            "summary_snippet": (
-                f"CourtListener full-text and citation-network search across 10M+ US federal and state opinions "
-                f"(including Harvard Law School's Caselaw Access Project [CAP] reporters and daily slip opinions) "
-                f"for '{query}'. ({note})"
-            ),
-            "legal_significance": (
-                "Primary binding and persuasive US judicial precedent, enriched with citing/cited-by counts "
-                "from the CourtListener Open Citation Graph for authority verification."
-            ),
-            "retrieval_mode": "offline_curated_index_with_deep_link",
-        },
-        {
-            "source_id": "courtlistener_delaware",
-            "source_name": "CourtListener — Delaware Court of Chancery & Supreme Court Filter",
-            "jurisdiction": "United States — State of Delaware (Corporate, M&A & Fiduciary Law)",
-            "doc_type": "Delaware Chancery & Supreme Court Opinions (court=delch,del)",
-            "title": f"CourtListener Delaware Corporate & M&A Precedent Filter — Query: '{query}'",
-            "citation": "Del. Ch. / Del. Supr. (CourtListener court=delch,del)",
-            "date": datetime.date.today().isoformat(),
-            "authority_court_or_agency": "Delaware Court of Chancery & Supreme Court of Delaware",
-            "url": f"https://www.courtlistener.com/?q={encoded_q}&type=o&court=delch%20del",
-            "api_endpoint": f"{COURTLISTENER_V4_SEARCH_URL}?q={encoded_q}&type=o&court=delch+del",
-            "summary_snippet": (
-                f"Targeted CourtListener query filtering specifically for Delaware Court of Chancery (`delch`) "
-                f"and Delaware Supreme Court (`del`) opinions on '{query}'."
-            ),
-            "legal_significance": (
-                "Controlling authority for US M&A transactions, fiduciary duty litigation, MAE clauses, and DGCL governance."
-            ),
-            "retrieval_mode": "offline_curated_index_with_deep_link",
-        },
-        {
-            "source_id": "courtlistener_recap",
-            "source_name": "CourtListener RECAP Archive — Federal PACER Dockets, Motions & Briefs",
-            "jurisdiction": "United States (Federal District & Bankruptcy Courts)",
-            "doc_type": "PACER Dockets, Complaints, Motions & Briefs (type=r)",
-            "title": f"CourtListener RECAP Federal Docket & Pleading Search — Query: '{query}'",
-            "citation": f"CourtListener RECAP Archive (type=r) — {query}",
-            "date": datetime.date.today().isoformat(),
-            "authority_court_or_agency": "U.S. Federal District & Bankruptcy Courts (via Free Law Project RECAP)",
-            "url": f"https://www.courtlistener.com/?q={encoded_q}&type=r",
-            "api_endpoint": f"{COURTLISTENER_V4_SEARCH_URL}?q={encoded_q}&type=r",
-            "summary_snippet": (
-                f"Searches millions of federal court dockets, complaints, motions to dismiss, summary judgment briefs, "
-                f"and exhibits in the CourtListener RECAP PACER archive matching '{query}'."
-            ),
-            "legal_significance": (
-                "Provides free access to real-world federal litigation filings, dockets, and brief precedents without PACER fees."
-            ),
-            "retrieval_mode": "offline_curated_index_with_deep_link",
-        },
-    ]
-    return records[:limit]
+    return curated_legal_corpus.query_curated_corpus(
+        source_id="courtlistener", query=query, court=court, limit=limit, note=note
+    )
 
 
 def verify_citations_courtlistener(text_or_citation: str, timeout: int = 12) -> Dict[str, Any]:
@@ -136,7 +70,9 @@ def verify_citations_courtlistener(text_or_citation: str, timeout: int = 12) -> 
         headers["Authorization"] = f"Token {api_token}"
 
     data_bytes = urllib.parse.urlencode({"text": text_or_citation}).encode("utf-8")
-    req = urllib.request.Request(COURTLISTENER_CITATION_LOOKUP_URL, data=data_bytes, headers=headers, method="POST")
+    req = urllib.request.Request(
+        COURTLISTENER_CITATION_LOOKUP_URL, data=data_bytes, headers=headers, method="POST"
+    )
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -229,7 +165,7 @@ def search_courtlistener(
 
             if not results:
                 results = build_curated_courtlistener_fallback(
-                    query, search_type, court, limit, "Zero direct hits returned; providing CourtListener deep-search links."
+                    query, search_type, court, limit, "Zero direct hits returned; providing CourtListener corpus matches."
                 )
 
     except Exception as exc:

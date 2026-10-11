@@ -30,11 +30,16 @@ if SOURCES_DIR not in sys.path:
     sys.path.insert(0, SOURCES_DIR)
 
 import search_courtlistener  # noqa: E402
+import search_de_law  # noqa: E402
+import search_eu_national_law  # noqa: E402
 import search_eur_lex  # noqa: E402
 import search_ip_patents  # noqa: E402
+import search_nordics_law  # noqa: E402
 import search_sec_edgar  # noqa: E402
+import search_uk_companies_house  # noqa: E402
 import search_uk_law  # noqa: E402
 import search_us_caselaw  # noqa: E402
+import search_us_code_tax  # noqa: E402
 import search_us_regulations  # noqa: E402
 
 AVAILABLE_SOURCES: Dict[str, Dict[str, Any]] = {
@@ -54,9 +59,14 @@ AVAILABLE_SOURCES: Dict[str, Dict[str, Any]] = {
         "fn": search_courtlistener.search_courtlistener,
     },
     "us_regulations": {
-        "label": "U.S. Federal Register, eCFR & U.S. Code / IRS Tax",
-        "jurisdiction": "US Federal Statutory & Regulatory",
+        "label": "U.S. Federal Register & eCFR (Titles 1–50 C.F.R.)",
+        "jurisdiction": "US Federal Administrative & Regulatory",
         "fn": search_us_regulations.search_us_regulations,
+    },
+    "us_code_tax": {
+        "label": "U.S. Code (GovInfo USLM), Congress.gov & IRS Tax Law (Title 26 USC)",
+        "jurisdiction": "US Federal Statutory & Tax",
+        "fn": search_us_code_tax.search_us_code_tax,
     },
     "eur_lex": {
         "label": "European Union EUR-Lex, CELLAR SPARQL & CJEU Case Law",
@@ -64,25 +74,57 @@ AVAILABLE_SOURCES: Dict[str, Dict[str, Any]] = {
         "fn": search_eur_lex.search_eur_lex,
     },
     "uk_law": {
-        "label": "UK Legislation (legislation.gov.uk), Find Case Law & Companies House",
-        "jurisdiction": "United Kingdom",
+        "label": "UK Legislation (legislation.gov.uk) & Find Case Law (National Archives)",
+        "jurisdiction": "United Kingdom (Statutes & Courts)",
         "fn": search_uk_law.search_uk_law,
     },
+    "uk_companies_house": {
+        "label": "UK Companies House Corporate Registry (Filings, PSCs, Charges & ECCTA 2023)",
+        "jurisdiction": "United Kingdom (Corporate Registry)",
+        "fn": search_uk_companies_house.search_uk_companies_house,
+    },
+    "de_law": {
+        "label": "Germany Primary Law (Gesetze-im-Internet BGB/HGB/AktG, BGH/BVerfG & OpenLegalData DE)",
+        "jurisdiction": "Germany",
+        "fn": search_de_law.search_de_law,
+    },
+    "nordics_law": {
+        "label": "Nordics Primary Law (Sweden Riksdagen SFS & Förarbeten, Norway Lovdata, Denmark, Finland)",
+        "jurisdiction": "Nordic Region (SE, NO, DK, FI)",
+        "fn": search_nordics_law.search_nordics_law,
+    },
+    "eu_national_law": {
+        "label": "France (Légifrance/Judilibre), Netherlands (Rechtspraak/KOOP) & Spain (BOE/CENDOJ)",
+        "jurisdiction": "Continental Europe (FR, NL, ES)",
+        "fn": search_eu_national_law.search_eu_national_law,
+    },
     "ip_patents": {
-        "label": "USPTO Open Data, PatentsView & PTAB Proceedings",
+        "label": "USPTO Open Data, PTAB Decisions API v2 & PatentsView",
         "jurisdiction": "US & Global IP / Patents",
         "fn": search_ip_patents.search_ip_patents,
     },
 }
 
 PRESET_BUNDLES: Dict[str, List[str]] = {
-    "all": ["courtlistener", "sec_edgar", "us_regulations", "eur_lex", "uk_law", "ip_patents"],
+    "all": [
+        "courtlistener",
+        "sec_edgar",
+        "us_regulations",
+        "us_code_tax",
+        "eur_lex",
+        "uk_law",
+        "uk_companies_house",
+        "de_law",
+        "nordics_law",
+        "eu_national_law",
+        "ip_patents",
+    ],
     "core": ["courtlistener", "sec_edgar", "us_regulations", "eur_lex", "uk_law"],
-    "us": ["courtlistener", "sec_edgar", "us_regulations"],
-    "eu_uk": ["eur_lex", "uk_law"],
-    "transactional": ["sec_edgar", "courtlistener", "uk_law", "eur_lex"],
-    "litigation": ["courtlistener", "us_regulations", "uk_law", "eur_lex"],
-    "regulatory": ["us_regulations", "eur_lex", "uk_law", "sec_edgar"],
+    "us": ["courtlistener", "sec_edgar", "us_regulations", "us_code_tax", "ip_patents"],
+    "eu_uk": ["eur_lex", "uk_law", "uk_companies_house", "de_law", "nordics_law", "eu_national_law"],
+    "transactional": ["sec_edgar", "courtlistener", "us_code_tax", "uk_law", "uk_companies_house", "de_law", "eur_lex"],
+    "litigation": ["courtlistener", "us_regulations", "uk_law", "eur_lex", "de_law", "eu_national_law"],
+    "regulatory": ["us_regulations", "us_code_tax", "eur_lex", "uk_law", "de_law", "nordics_law", "sec_edgar"],
 }
 
 
